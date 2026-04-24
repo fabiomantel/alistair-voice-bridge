@@ -1,6 +1,5 @@
 const Alexa = require('ask-sdk-core');
 const express = require('express');
-const bodyParser = require('body-parser');
 const axios = require('axios');
 require('dotenv').config();
 
@@ -18,7 +17,6 @@ const RequestLogInterceptor = {
 
 const FallbackIntentHandler = {
     canHandle(handlerInput) {
-        // Use raw access to avoid the "not a function" or "undefined" SDK bugs
         const request = handlerInput.requestEnvelope.request;
         return request.type === 'IntentRequest' &&
             request.intent.name === 'AMAZON.FallbackIntent';
@@ -37,7 +35,6 @@ const FallbackIntentHandler = {
 // 1. The "Wake Up" Handler
 const LaunchRequestHandler = {
     canHandle(handlerInput) {
-        // Direct check of the envelope - no helpers to fail
         return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
     },
     handle(handlerInput) {
@@ -76,20 +73,24 @@ const CaptureAllIntentHandler = {
                 console.error('Missing OPENROUTER_API_KEY in environment variables.');
                 return handlerInput.responseBuilder
                     .speak('I am missing the API key configuration. Please check the server setup.')
-                    .reprompt('Please check the server configuration and try again.')
                     .withShouldEndSession(false)
                     .getResponse();
             }
 
-            console.log("🧠 Sending to OpenRouter...");
+            console.log("🧠 Routing to Claude Haiku via OpenRouter...");
+
+            // Context Injection: Gives Alistair spatial and temporal awareness
+            const currentDateTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+            const dynamicSystemPrompt = `You are Alistair, an elite AI voice assistant. Current system time: ${currentDateTime}. Keep your answers extremely concise (under 30 words) because they will be read aloud by a text-to-speech engine. Do not use markdown, emojis, or code blocks. Speak naturally.`;
 
             const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
                 model: "anthropic/claude-haiku-4.5",
+                max_tokens: 45, // RESTORED: Critical for beating the 8-second Alexa timeout
+                provider: {
+                    order: ["Anthropic", "Amazon"] // RESTORED: Forces fastest available routing
+                },
                 messages: [
-                    {
-                        role: "system",
-                        content: "You are Alistair, an elite AI voice assistant. Keep your answers extremely concise (under 30 words) because they will be read aloud by a text-to-speech engine. Do not use markdown, emojis, or code blocks. Speak naturally."
-                    },
+                    { role: "system", content: dynamicSystemPrompt },
                     { role: "user", content: userInput }
                 ]
             }, {
@@ -121,7 +122,7 @@ const CaptureAllIntentHandler = {
     }
 };
 
-// 3. The "Goodbye" Handler (Required for certified skills)
+// 3. The "Goodbye" Handler
 const SessionEndedRequestHandler = {
     canHandle(handlerInput) {
         return handlerInput.requestEnvelope.request.type === 'SessionEndedRequest';
@@ -151,7 +152,6 @@ const ErrorHandler = {
     handle(handlerInput, error) {
         console.error(`❌ [ERROR]: ${error.message}`);
         console.error(error.stack);
-        console.log(`~~~~ Error handled: ${error.stack}`);
         return handlerInput.responseBuilder
             .speak("Apologies, I encountered a logic error. Check the terminal.")
             .getResponse();
@@ -164,13 +164,16 @@ const skillBuilder = Alexa.SkillBuilders.custom()
         CaptureAllIntentHandler,
         SessionEndedRequestHandler,
         FallbackIntentHandler,
-        IntentReflectorHandler // Must be LAST among intent handlers
+        IntentReflectorHandler
     )
     .addRequestInterceptors(RequestLogInterceptor)
     .addErrorHandlers(ErrorHandler);
 
 const app = express();
-app.use(bodyParser.json());
+
+// Modernized: Use native Express middleware instead of body-parser
+app.use(express.json());
+
 app.post('/', async (req, res) => {
     try {
         const response = await skillBuilder.create().invoke(req.body);
@@ -183,7 +186,7 @@ app.post('/', async (req, res) => {
 
 // Export for Vercel serverless; listen locally when run directly
 if (require.main === module) {
-    app.listen(3000, () => console.log('Alistair Bridge active on port 3000'));
+    app.listen(3000, () => console.log('🚀 Alistair Bridge active on port 3000'));
 }
 
 module.exports = app;
