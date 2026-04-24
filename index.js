@@ -85,6 +85,7 @@ const CaptureAllIntentHandler = {
 
             const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
                 model: "anthropic/claude-haiku-4.5",
+                max_tokens: 45,
                 messages: [
                     {
                         role: "system",
