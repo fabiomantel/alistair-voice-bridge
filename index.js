@@ -181,4 +181,9 @@ app.post('/', async (req, res) => {
     }
 });
 
-app.listen(3000, () => console.log('Alistair Bridge active on port 3000'));
+// Export for Vercel serverless; listen locally when run directly
+if (require.main === module) {
+    app.listen(3000, () => console.log('Alistair Bridge active on port 3000'));
+}
+
+module.exports = app;
