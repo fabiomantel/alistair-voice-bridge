@@ -5,48 +5,45 @@ require('dotenv').config();
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
+/**
+ * LOGGING INTERCEPTOR
+ * Debugs every incoming request from Alexa to the Vercel console.
+ */
 const RequestLogInterceptor = {
     process(handlerInput) {
         const type = handlerInput.requestEnvelope.request.type;
         console.log(`\n📥 [REQUEST] Type: ${type}`);
         if (type === 'IntentRequest') {
-            console.log(`🎯 [INTENT] Name: ${handlerInput.requestEnvelope.request.intent.name}`);
+            const intentName = handlerInput.requestEnvelope.request.intent.name;
+            console.log(`🎯 [INTENT] Name: ${intentName}`);
         }
     }
 };
 
-const FallbackIntentHandler = {
-    canHandle(handlerInput) {
-        const request = handlerInput.requestEnvelope.request;
-        return request.type === 'IntentRequest' &&
-            request.intent.name === 'AMAZON.FallbackIntent';
-    },
-    handle(handlerInput) {
-        console.log("⚠️  FALLBACK TRIGGERED: Alexa hit a dead end.");
-
-        return handlerInput.responseBuilder
-            .speak("I'm sorry, Fabio. I didn't quite catch that. Try starting your command with the word 'ask'.")
-            .reprompt("Alistair is listening. Please say 'ask' followed by your command.")
-            .withShouldEndSession(false)
-            .getResponse();
-    }
-};
-
-// 1. The "Wake Up" Handler
+/**
+ * 1. LAUNCH REQUEST HANDLER
+ * Triggered by: "Alexa, open Speak Smart"
+ */
 const LaunchRequestHandler = {
     canHandle(handlerInput) {
         return handlerInput.requestEnvelope.request.type === 'LaunchRequest';
     },
     handle(handlerInput) {
-        console.log("✅ Inside LaunchRequestHandler execution");
+        console.log("✅ Executing LaunchRequest");
+        const speechText = "Alistair online. Standing by for your command, Fabio.";
+
         return handlerInput.responseBuilder
-            .speak("Alistair online. Standing by for your command, Fabio.")
-            .reprompt("What is the mission?")
+            .speak(speechText)
+            .reprompt("I am listening. What is the mission?") // Keeps mic open for 8 seconds
+            .withShouldEndSession(false) // CRITICAL: Keeps session alive for conversation
             .getResponse();
     }
 };
 
-// 2. The "Mission Command" Handler
+/**
+ * 2. MAIN AI HANDLER (CaptureAllIntent)
+ * Triggered by: "Ask {query}" or follow-up speech
+ */
 const CaptureAllIntentHandler = {
     canHandle(handlerInput) {
         return handlerInput.requestEnvelope.request.type === 'IntentRequest' &&
@@ -62,42 +59,45 @@ const CaptureAllIntentHandler = {
 
         if (!userInput) {
             return handlerInput.responseBuilder
-                .speak("I heard nothing. Please try your command again.")
-                .reprompt("I am listening.")
+                .speak("I heard nothing. Please try again.")
+                .reprompt("I am still listening.")
                 .withShouldEndSession(false)
                 .getResponse();
         }
 
         try {
             if (!OPENROUTER_API_KEY) {
-                console.error('Missing OPENROUTER_API_KEY in environment variables.');
                 return handlerInput.responseBuilder
-                    .speak('I am missing the API key configuration. Please check the server setup.')
-                    .withShouldEndSession(false)
+                    .speak("Configuration error: API key missing.")
                     .getResponse();
             }
 
-            console.log("🧠 Routing to Claude Haiku via OpenRouter...");
-
-            // Context Injection: Gives Alistair spatial and temporal awareness
+            // --- CONTEXT INJECTION ---
+            // Gives Alistair spatial/temporal awareness (Tel Aviv/Holon Time)
             const currentDateTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
-            const dynamicSystemPrompt = `You are Alistair, an elite AI voice assistant. Current system time: ${currentDateTime}. Keep your answers extremely concise (under 30 words) because they will be read aloud by a text-to-speech engine. Do not use markdown, emojis, or code blocks. Speak naturally.`;
+
+            const systemPrompt = `You are Alistair, an elite AI voice assistant for Fabio. 
+            Current Time/Date: ${currentDateTime}. Location: Holon, Israel.
+            Keep answers under 30 words. No markdown, emojis, or code. Speak naturally for TTS.`;
+
+            console.log("🧠 Sending to OpenRouter (Claude Haiku 4.5)...");
 
             const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
                 model: "anthropic/claude-haiku-4.5",
-                max_tokens: 45, // RESTORED: Critical for beating the 8-second Alexa timeout
+                max_tokens: 50,
                 provider: {
-                    order: ["Anthropic", "Amazon"] // RESTORED: Forces fastest available routing
+                    order: ["Anthropic", "Amazon"] // High-speed routing
                 },
                 messages: [
-                    { role: "system", content: dynamicSystemPrompt },
+                    { role: "system", content: systemPrompt },
                     { role: "user", content: userInput }
                 ]
             }, {
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
                     'Content-Type': 'application/json'
-                }
+                },
+                timeout: 7000 // Timeout before Alexa's 8s limit
             });
 
             const aiResponse = response.data.choices[0].message.content;
@@ -105,88 +105,89 @@ const CaptureAllIntentHandler = {
 
             return handlerInput.responseBuilder
                 .speak(aiResponse)
-                .reprompt("Is there anything else?")
-                .withShouldEndSession(false)
+                .reprompt("Any follow up?") // Keeps mic open for next sentence
+                .withShouldEndSession(false) // Allows free conversation
                 .getResponse();
 
         } catch (error) {
-            console.error("❌ OpenRouter API Error:", error.message);
-            if (error.response) console.error(error.response.data);
-
+            console.error("❌ API Error:", error.message);
             return handlerInput.responseBuilder
-                .speak("I am having trouble connecting to the AI brain. Please check the server logs.")
-                .reprompt("Want to try again?")
+                .speak("The AI brain is unresponsive. Please try again in a moment.")
                 .withShouldEndSession(false)
                 .getResponse();
         }
     }
 };
 
-// 3. The "Goodbye" Handler
+/**
+ * 3. FALLBACK & ERROR HANDLERS
+ */
+const FallbackIntentHandler = {
+    canHandle(handlerInput) {
+        return handlerInput.requestEnvelope.request.type === 'IntentRequest' &&
+            handlerInput.requestEnvelope.request.intent.name === 'AMAZON.FallbackIntent';
+    },
+    handle(handlerInput) {
+        return handlerInput.responseBuilder
+            .speak("I didn't catch that. Could you rephrase it?")
+            .reprompt("I'm still here.")
+            .withShouldEndSession(false)
+            .getResponse();
+    }
+};
+
 const SessionEndedRequestHandler = {
     canHandle(handlerInput) {
         return handlerInput.requestEnvelope.request.type === 'SessionEndedRequest';
     },
     handle(handlerInput) {
-        console.log("🛑 Session Ended Request");
+        console.log("🛑 Session Ended.");
         return handlerInput.responseBuilder.getResponse();
     }
 };
 
-const IntentReflectorHandler = {
-    canHandle(handlerInput) {
-        return handlerInput.requestEnvelope.request.type === 'IntentRequest';
-    },
-    handle(handlerInput) {
-        const intentName = Alexa.getIntentName(handlerInput.requestEnvelope);
-        console.log(`Fallback: You triggered ${intentName}`);
-        return handlerInput.responseBuilder
-            .speak(`I haven't learned how to handle ${intentName} yet.`)
-            .getResponse();
-    }
-};
-
-// 4. The Global Error Handler
 const ErrorHandler = {
     canHandle() { return true; },
     handle(handlerInput, error) {
-        console.error(`❌ [ERROR]: ${error.message}`);
-        console.error(error.stack);
+        console.error(`❌ [CRITICAL ERROR]: ${error.stack}`);
         return handlerInput.responseBuilder
-            .speak("Apologies, I encountered a logic error. Check the terminal.")
+            .speak("A logic error occurred. Check the Vercel logs.")
             .getResponse();
     }
 };
 
+/**
+ * SKILL CONFIGURATION
+ */
 const skillBuilder = Alexa.SkillBuilders.custom()
     .addRequestHandlers(
         LaunchRequestHandler,
         CaptureAllIntentHandler,
         SessionEndedRequestHandler,
-        FallbackIntentHandler,
-        IntentReflectorHandler
+        FallbackIntentHandler
     )
     .addRequestInterceptors(RequestLogInterceptor)
     .addErrorHandlers(ErrorHandler);
 
+/**
+ * EXPRESS SERVER & VERCEL EXPORT
+ */
 const app = express();
-
-// Modernized: Use native Express middleware instead of body-parser
 app.use(express.json());
 
 app.post('/', async (req, res) => {
     try {
         const response = await skillBuilder.create().invoke(req.body);
-        res.send(response);
+        res.json(response);
     } catch (error) {
         console.error("Invoke Error:", error);
         res.status(500).send('Skill Error');
     }
 });
 
-// Export for Vercel serverless; listen locally when run directly
+// Local testing fallback
 if (require.main === module) {
-    app.listen(3000, () => console.log('🚀 Alistair Bridge active on port 3000'));
+    app.listen(3000, () => console.log('🚀 Alistair Bridge Live on Port 3000'));
 }
 
 module.exports = app;
