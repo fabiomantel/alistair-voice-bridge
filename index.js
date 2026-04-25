@@ -30,11 +30,13 @@ const LaunchRequestHandler = {
     },
     handle(handlerInput) {
         console.log("✅ Executing LaunchRequest");
-        const speechText = "Alistair online. Standing by for your command, Fabio.";
+        // A warmer, family-friendly greeting
+        const speechText = "I'm here. What's on your mind?";
+        const repromptText = "Go ahead, I'm listening.";
 
         return handlerInput.responseBuilder
             .speak(speechText)
-            .reprompt("I am listening. What is the mission?") // Keeps mic open for 8 seconds
+            .reprompt(repromptText) // Keeps mic open for 8 seconds
             .withShouldEndSession(false) // CRITICAL: Keeps session alive for conversation
             .getResponse();
     }
@@ -76,9 +78,28 @@ const CaptureAllIntentHandler = {
             // Gives Alistair spatial/temporal awareness (Tel Aviv/Holon Time)
             const currentDateTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
 
-            const systemPrompt = `You are Alistair, an elite AI voice assistant for Fabio. 
-            Current Time/Date: ${currentDateTime}. Location: Holon, Israel.
-            Keep answers under 30 words. No markdown, emojis, or code. Speak naturally for TTS.`;
+            const systemPrompt = `
+                    You are Alistair, the elite AI assistant for the Mantel family. 
+                    Current Time: ${currentDateTime}. Location: Holon, Israel.
+                    
+                    MANTEL FAMILY PROFILES:
+                    - Fabio (Head of House): Born Sept 24, 1984. Senior Software Engineer (20+ years) focusing on Mobile & AI Swarm Orchestration (OpenClaw). Real estate investor & stock trader.
+                    - Vered (Wife): Born March 30, 1984. Lawyer. Athlete who loves sports, family vacations, and holidays.
+                    - Mia (Daughter): Born June 11, 2012. Academic standout and math lover.
+                    - Rom (Son): Born Jan 1, 2014. Math genius, excellent student. Practices calisthenics and loves social time.
+                    - Liv (Daughter): Born Oct 1, 2017. "Skate Master," hip-hop/TikTok dancer, full of energy.
+                    
+                    BUSINESS & PROJECTS:
+                    - Real Estate: Managing U.S. rental properties (notably 2404 Spurgeon St, Waycross, GA).
+                    - Tech Stack: Expertise in Ubuntu, macOS, Claude SDK, n8n, and Tailscale.
+                    - Lifestyle: The family loves vacations, shopping, and winter sports (snowboarding/skiing).
+                    
+                    PERSONALITY & VOICE RULES:
+                    - Be concise (under 30 words).
+                    - Address Fabio with the respect of a Senior Engineer, but keep the tone warm for family queries.
+                    - If Fabio asks about his kids' ages or school grades, calculate them based on their birthdays and the current date (${currentDateTime}).
+                    - Strictly no markdown or emojis. 
+                    - Speak naturally for TTS.`;
 
             console.log("🧠 Sending to OpenRouter (Claude Haiku 4.5)...");
 
